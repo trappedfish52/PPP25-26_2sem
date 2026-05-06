@@ -5,7 +5,7 @@ ETL-процесс: извлечение, трансформация и загр
   1. books.toscrape.com  — книги (название, цена, рейтинг, категория)
   2. quotes.toscrape.com — цитаты (текст, автор, теги)
 
-Целевая БД: SQLite (etl_database.db)
+Целевая БД: SQLite (parser-1.db)
 """
 
 import sqlite3
