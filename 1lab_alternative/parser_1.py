@@ -1,13 +1,3 @@
-"""
-ETL-процесс: извлечение, трансформация и загрузка данных
-=========================================================
-Источники:
-  1. books.toscrape.com  — книги (название, цена, рейтинг, категория)
-  2. quotes.toscrape.com — цитаты (текст, автор, теги)
-
-Целевая БД: SQLite (parser-1.db)
-"""
-
 import sqlite3
 import json
 import re
@@ -20,7 +10,7 @@ from urllib.request import urlopen, Request
 from urllib.parse import urljoin
 from html.parser import HTMLParser
 
-# ─────────────────────────── Настройка логов ────────────────────────────────
+#логи
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s %(message)s",
@@ -31,26 +21,19 @@ log = logging.getLogger("ETL")
 RAW_DIR = Path("raw_data")
 RAW_DIR.mkdir(exist_ok=True)
 
-DB_PATH = "etl_database.db"
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ВСПОМОГАТЕЛЬНЫЕ ИНСТРУМЕНТЫ
-# ═══════════════════════════════════════════════════════════════════════════════
+DB_PATH = "parser.db"
 
 def fetch_html(url: str) -> str:
-    """Загружает HTML-страницу и возвращает её как строку."""
+    """загрузка html"""
     req = Request(url, headers={"User-Agent": "Mozilla/5.0 (ETL-Bot/1.0)"})
     with urlopen(req, timeout=15) as resp:
         return resp.read().decode("utf-8", errors="replace")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ИСТОЧНИК 1: books.toscrape.com
-# ═══════════════════════════════════════════════════════════════════════════════
 
+#books.toscrape.com (книги)
 class BookParser(HTMLParser):
-    """Парсит страницу каталога книг."""
+    """парсит каталог"""
 
     RATING_MAP = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5}
 
@@ -62,6 +45,7 @@ class BookParser(HTMLParser):
         self._capture_title = False
         self._capture_price = False
 
+    #start tag
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         if tag == "article" and "product_pod" in attrs.get("class", ""):
@@ -81,12 +65,12 @@ class BookParser(HTMLParser):
         if tag == "a" and self._capture_title:
             self._current["title"] = attrs.get("title", "")
             self._capture_title = False
-
+    #middle tag
     def handle_data(self, data):
         if self._capture_price and self._in_article:
             self._current["price_raw"] = data.strip()
             self._capture_price = False
-
+    #end tag
     def handle_endtag(self, tag):
         if tag == "article" and self._in_article:
             self._in_article = False
@@ -95,11 +79,8 @@ class BookParser(HTMLParser):
                 self._current = {}
 
 
+#extract
 def extract_books(max_pages: int = 3) -> list[dict]:
-    """
-    EXTRACT — Источник 1: книги.
-    Обходит несколько страниц каталога и возвращает сырые данные.
-    """
     base = "https://books.toscrape.com/catalogue/"
     raw_books: list[dict] = []
 
@@ -114,22 +95,19 @@ def extract_books(max_pages: int = 3) -> list[dict]:
 
         parser = BookParser()
         parser.feed(html)
-        log.info("[Source 1] Найдено книг на странице %d: %d", page, len(parser.books))
+        log.info("[Source 1] Книг на странице %d: %d", page, len(parser.books))
         raw_books.extend(parser.books)
 
-    # Сохраняем сырые данные
     raw_path = RAW_DIR / "raw_books.json"
     raw_path.write_text(json.dumps(raw_books, ensure_ascii=False, indent=2), encoding="utf-8")
     log.info("[Source 1] Сырые данные сохранены → %s (%d записей)", raw_path, len(raw_books))
     return raw_books
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ИСТОЧНИК 2: quotes.toscrape.com
-# ═══════════════════════════════════════════════════════════════════════════════
 
+#quotes.toscrape.com(цитаты)
 class QuoteParser(HTMLParser):
-    """Парсит страницу цитат."""
+    """парсит цитаты"""
 
     def __init__(self):
         super().__init__()
@@ -140,7 +118,7 @@ class QuoteParser(HTMLParser):
         self._capture_tag = False
         self._current: dict = {}
         self._depth = 0
-
+    #start tag
     def handle_starttag(self, tag, attrs):
         attrs_d = dict(attrs)
         cls = attrs_d.get("class", "")
@@ -158,7 +136,7 @@ class QuoteParser(HTMLParser):
             self._capture_author = True
         if tag == "a" and "tag" in cls.split():
             self._capture_tag = True
-
+    #middle tag
     def handle_data(self, data):
         data = data.strip()
         if not data:
@@ -172,7 +150,7 @@ class QuoteParser(HTMLParser):
         elif self._capture_tag:
             self._current["tags"].append(data)
             self._capture_tag = False
-
+    #end tag
     def handle_endtag(self, tag):
         if not self._in_quote_div:
             return
@@ -184,11 +162,8 @@ class QuoteParser(HTMLParser):
                     self.quotes.append(self._current)
                 self._current = {}
 
-
+#extract
 def extract_quotes(max_pages: int = 3) -> list[dict]:
-    """
-    EXTRACT — Источник 2: цитаты.
-    """
     base = "https://quotes.toscrape.com"
     raw_quotes: list[dict] = []
 
@@ -203,7 +178,7 @@ def extract_quotes(max_pages: int = 3) -> list[dict]:
 
         parser = QuoteParser()
         parser.feed(html)
-        log.info("[Source 2] Найдено цитат на странице %d: %d", page, len(parser.quotes))
+        log.info("[Source 2] Цитат на странице %d: %d", page, len(parser.quotes))
         raw_quotes.extend(parser.quotes)
 
     raw_path = RAW_DIR / "raw_quotes.json"
@@ -212,10 +187,8 @@ def extract_quotes(max_pages: int = 3) -> list[dict]:
     return raw_quotes
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  TRANSFORM
-# ═══════════════════════════════════════════════════════════════════════════════
 
+#транфсорм валюты
 def clean_price(raw: str) -> Optional[float]:
     """'Â£51.77' → 51.77"""
     digits = re.sub(r"[^\d.]", "", raw)
@@ -224,21 +197,20 @@ def clean_price(raw: str) -> Optional[float]:
     except ValueError:
         return None
 
-
+#id
 def make_uid(*parts: str) -> str:
-    """Стабильный идентификатор из набора строк."""
     key = "|".join(parts).encode()
     return hashlib.md5(key).hexdigest()[:12]
 
 
 def transform_books(raw: list[dict]) -> list[dict]:
     """
-    TRANSFORM — книги:
-      - очистка цены (убираем символы валюты, конвертируем в float)
-      - нормализация рейтинга (1–5)
-      - генерация уникального id
-      - удаление дубликатов по названию
-      - приведение к единой схеме items
+    трансформ книги:
+      очистка цены
+      нормализация рейтинга 
+      генерация id
+      удаление дубликатов по названию
+      приведение к единой схеме items
     """
     seen: set[str] = set()
     result: list[dict] = []
@@ -278,19 +250,18 @@ def transform_books(raw: list[dict]) -> list[dict]:
 
 def transform_quotes(raw: list[dict]) -> list[dict]:
     """
-    TRANSFORM — цитаты:
-      - удаление типографских кавычек из текста
-      - нормализация тегов в строку через запятую
-      - генерация уникального id
-      - удаление дубликатов по тексту
-      - приведение к единой схеме items
+    трафнсорм цитаты:
+      удаление кавычек 
+      нормализация тегов в строку 
+      генерация id
+      удаление дубликатов по тексту
+      приведение к единой схеме items
     """
     seen: set[str] = set()
     result: list[dict] = []
 
     for raw_item in raw:
         raw_text = (raw_item.get("text_raw") or "").strip()
-        # Убираем типографские кавычки « » " " ‟ и обычные
         text = re.sub(r'[«»\u201c\u201d\u201f\u2018\u2019\u00ab\u00bb]', '', raw_text).strip()
         if not text:
             continue
@@ -308,7 +279,7 @@ def transform_quotes(raw: list[dict]) -> list[dict]:
             "uid": uid,
             "source": "quotes.toscrape.com",
             "category": "quote",
-            "title": text[:120],           # используем начало цитаты как «заголовок»
+            "title": text[:120],           #начало цитаты как заголовок
             "price": None,
             "rating": None,
             "description": f"Author: {author}" if author else None,
@@ -319,11 +290,7 @@ def transform_quotes(raw: list[dict]) -> list[dict]:
     log.info("[Transform] Цитаты: %d сырых → %d после трансформации", len(raw), len(result))
     return result
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  LOAD
-# ═══════════════════════════════════════════════════════════════════════════════
-
+#load sql
 DDL = """
 CREATE TABLE IF NOT EXISTS items (
     uid         TEXT PRIMARY KEY,
@@ -357,10 +324,6 @@ ON CONFLICT(uid) DO UPDATE SET
 
 
 def load(items: list[dict], db_path: str = DB_PATH) -> None:
-    """
-    LOAD — загружает унифицированные записи в SQLite.
-    Поддерживает UPSERT (INSERT OR UPDATE) для идемпотентного запуска.
-    """
     now = datetime.utcnow().isoformat()
     for item in items:
         item["loaded_at"] = now
@@ -375,10 +338,7 @@ def load(items: list[dict], db_path: str = DB_PATH) -> None:
         con.close()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ОТЧЁТ ПО БД
-# ═══════════════════════════════════════════════════════════════════════════════
-
+#отчет
 def print_report(db_path: str = DB_PATH) -> None:
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
@@ -419,24 +379,21 @@ def print_report(db_path: str = DB_PATH) -> None:
         con.close()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  ТОЧКА ВХОДА
-# ═══════════════════════════════════════════════════════════════════════════════
-
+#точка входа
 def run_etl(pages: int = 3):
     log.info("━━━ Запуск ETL-процесса (страниц: %d) ━━━", pages)
     start = datetime.utcnow()
 
-    # ── EXTRACT ──────────────────────────────────────────────
+    #extract
     raw_books = extract_books(max_pages=pages)
     raw_quotes = extract_quotes(max_pages=pages)
 
-    # ── TRANSFORM ────────────────────────────────────────────
+    #transform
     books = transform_books(raw_books)
     quotes = transform_quotes(raw_quotes)
     all_items = books + quotes
 
-    # ── LOAD ─────────────────────────────────────────────────
+    #load
     load(all_items)
 
     elapsed = (datetime.utcnow() - start).total_seconds()
