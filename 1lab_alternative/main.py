@@ -11,11 +11,6 @@ from urllib.parse import urljoin
 from html.parser import HTMLParser
 import ssl, certifi
 
-def fetch_html(url: str) -> str:
-    ctx = ssl.create_default_context(cafile=certifi.where())
-    req = Request(url, headers={"User-Agent": "Mozilla/5.0 (ETL-Bot/1.0)"})
-    with urlopen(req, timeout=15, context=ctx) as resp:
-        return resp.read().decode("utf-8", errors="replace")
 #логи
 logging.basicConfig(
     level=logging.INFO,
@@ -30,11 +25,10 @@ RAW_DIR.mkdir(exist_ok=True)
 DB_PATH = "parser.db"
 
 def fetch_html(url: str) -> str:
-    """загрузка html"""
+    ctx = ssl.create_default_context(cafile=certifi.where())
     req = Request(url, headers={"User-Agent": "Mozilla/5.0 (ETL-Bot/1.0)"})
-    with urlopen(req, timeout=15) as resp:
+    with urlopen(req, timeout=15, context=ctx) as resp:
         return resp.read().decode("utf-8", errors="replace")
-
 
 
 #books.toscrape.com (книги)
