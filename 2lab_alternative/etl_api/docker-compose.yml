@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  # ── Redis (брокер + бэкенд для Celery) ──────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  # ── FastAPI ──────────────────────────────────────────────────────────────────
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./parser.db:/app/parser.db   # монтируем ETL-базу
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── Celery worker ─────────────────────────────────────────────────────────────
+  worker:
+    build: .
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./parser.db:/app/parser.db
+    depends_on:
+      - redis
+    command: celery -A app.celery_app.celery_app worker --loglevel=info --concurrency=2
